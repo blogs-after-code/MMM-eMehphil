@@ -1,13 +1,14 @@
 import { useState, useEffect, useRef } from "react";
-import { login, submitReport } from "./api.js";
+import { submitReport } from "./api.js";
 import { createSocket } from "./socket.js";
 import { createPeerConnection, getLocalStream, restartIce } from "./webrtc.js";
 import { createAudioMeter } from "./audioMeter.js";
 import { getYearOfStudy } from "./yearUtils.js";
+import Auth from "./Auth.jsx";
 
 export default function App() {
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [rollNumber, setRollNumber] = useState("");
-  const [password, setPassword] = useState("");
   const [status, setStatus] = useState("Not logged in");
   const [matchStatus, setMatchStatus] = useState("idle"); // idle | previewing | waiting | matched
   const [partner, setPartner] = useState(null);
@@ -29,16 +30,17 @@ export default function App() {
   const roomIdRef = useRef(null); // current match's room, needed for reporting
   const voiceBarRef = useRef(null); // updated directly (not via React state) so it stays smooth at 60fps
 
-  async function handleLogin(e) {
-    e.preventDefault();
-    setStatus("Logging in...");
-    try {
-      const { token } = await login(rollNumber, password);
-      tokenRef.current = token;
-      setStatus("Logged in — connecting socket...");
+  function handleAuthenticated(token, myRollNumber) {
+    tokenRef.current = token;
+    setRollNumber(myRollNumber);
+    setIsAuthenticated(true);
+    setStatus("Logged in — connecting socket...");
+    connectSocket(token);
+  }
 
-      const socket = createSocket(token);
-      socketRef.current = socket;
+  function connectSocket(token) {
+    const socket = createSocket(token);
+    socketRef.current = socket;
 
       socket.on("connect", () => setStatus(`Socket connected: ${socket.id}`));
       socket.on("connect_error", (err) => setStatus(`Socket error: ${err.message}`));
@@ -82,9 +84,6 @@ export default function App() {
       });
 
       socket.connect();
-    } catch (err) {
-      setStatus(`Login failed: ${err.response?.data?.error || err.message}`);
-    }
   }
 
   // Runs the moment the user clicks Start — gets camera/mic access and shows
@@ -261,38 +260,22 @@ export default function App() {
 
   return (
     <div style={{ fontFamily: "sans-serif", padding: "2rem", maxWidth: 400 }}>
-      <h1>MMM eMehphil — Phase 7 test</h1>
+      <h1>MMM eMehphil</h1>
 
-      <form onSubmit={handleLogin}>
-        <div>
-          <label>Roll number</label>
-          <br />
-          <input value={rollNumber} onChange={(e) => setRollNumber(e.target.value)} />
-        </div>
-        <div style={{ marginTop: 8 }}>
-          <label>Password</label>
-          <br />
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-          />
-        </div>
-        <button type="submit" style={{ marginTop: 12 }}>
-          Login
-        </button>
-      </form>
+      {!isAuthenticated ? (
+        <Auth onAuthenticated={handleAuthenticated} />
+      ) : (
+        <>
+          <p style={{ marginTop: 16 }}>
+            <strong>Status:</strong> {status}
+          </p>
 
-      <p style={{ marginTop: 16 }}>
-        <strong>Status:</strong> {status}
-      </p>
+          <hr />
 
-      <hr />
-
-      <p>
-        <strong>Match status:</strong> {matchStatus}
-        {partner && ` — paired with ${partner}`}
-      </p>
+          <p>
+            <strong>Match status:</strong> {matchStatus}
+            {partner && ` — paired with ${partner}`}
+          </p>
 
       {matchStatus === "idle" && (
         <div style={{ marginBottom: 8 }}>
@@ -407,6 +390,8 @@ export default function App() {
             </>
           )}
         </div>
+      )}
+        </>
       )}
     </div>
   );

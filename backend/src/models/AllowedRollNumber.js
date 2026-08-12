@@ -10,7 +10,7 @@ const allowedRollNumberSchema = new mongoose.Schema({
     trim: true,
     match: [/^\d{10}$/, "Roll number must be 10 digits"],
   },
-  // Official college email, e.g. "2025071129" for 2025071129.mmmut.ac.in
+  // Official college email, e.g. "2025071129" for 2025071129@mmmut.ac.in
   // Kept so a future OTP-verification step can email this address before claiming.
   email: {
     type: String,

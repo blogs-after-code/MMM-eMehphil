@@ -10,8 +10,8 @@ http:
     type: json
     data: |
       {
-        "rollNumber": "2025071129",
-        "displayName": "Hinata_hyuga",
+        "rollNumber": "2025021248",
+        "displayName": "RajS",
         "password": "test1234"
       } 
   auth: inherit

@@ -15,17 +15,20 @@ dotenv.config();
 // so the mongodb+srv:// lookup succeeds.
 dns.setServers(["8.8.8.8", "1.1.1.1"]);
 
-// MMMUT roll numbers are 10-digit; official email is <rollnumber>.mmmut.ac.in
-const testRollNumbers = ["2025021374", "2025071129", "2026011234", "2027061001", "2025071132" , "2025021248"];
+// MMMUT roll numbers are 10-digit; official email is <rollnumber>@mmmut.ac.in
+const testRollNumbers = ["2025021374", "2025071129", "2026011234", "2027061001"];
 
 async function seed() {
   await mongoose.connect(process.env.MONGO_URI);
 
   for (const rollNumber of testRollNumbers) {
-    const email = `${rollNumber}.mmmut.ac.in`;
+    const email = `${rollNumber}@mmmut.ac.in`;
     await AllowedRollNumber.updateOne(
       { rollNumber },
-      { $setOnInsert: { rollNumber, email, isClaimed: false } },
+      {
+        $set: { rollNumber, email }, // safe to update every run
+        $setOnInsert: { isClaimed: false }, // only set on first insert — don't reset already-claimed roll numbers
+      },
       { upsert: true }
     );
   }
