@@ -11,7 +11,7 @@ http:
     data: |
       {
         "rollNumber": "2025071129",
-        "displayName": "Divyansh",
+        "displayName": "Hinata_hyuga",
         "password": "test1234"
       } 
   auth: inherit
