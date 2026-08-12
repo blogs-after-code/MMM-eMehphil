@@ -66,6 +66,7 @@ export async function requestOtp(req, res) {
 
     res.json({ message: "OTP sent to your college email" });
   } catch (err) {
+    console.error("requestOtp error:", err);
     res.status(500).json({ error: "Failed to send OTP", details: err.message });
   }
 }

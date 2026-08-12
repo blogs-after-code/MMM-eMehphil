@@ -52,7 +52,9 @@ export default function Auth({ onAuthenticated }) {
       setStatus("OTP sent — check your college email (may take a minute).");
       setStep("enterOtp");
     } catch (err) {
-      setStatus(`Failed to send OTP: ${err.response?.data?.error || err.message}`);
+      const data = err.response?.data;
+      const detail = data?.details ? ` (${data.details})` : "";
+      setStatus(`Failed to send OTP: ${data?.error || err.message}${detail}`);
     } finally {
       setBusy(false);
     }
