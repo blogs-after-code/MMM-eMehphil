@@ -1,0 +1,17 @@
+info:
+  name: me
+  type: http
+  seq: 4
+
+http:
+  method: GET
+  url: http://localhost:5000/api/users/me
+  auth:
+    type: bearer
+    token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjZhN2I1NjNlMDVhMDcyNjg5N2I3ODA3YiIsInJvbGxOdW1iZXIiOiIyMDI1MDcxMTI5IiwiaWF0IjoxNzg2NDY4MDg5LCJleHAiOjE3ODcwNzI4ODl9.HBRxY-0JsozTdBPYnOvmGGrejy40HBba9WbYqg5qaXU
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
