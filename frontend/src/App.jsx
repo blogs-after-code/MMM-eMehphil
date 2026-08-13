@@ -109,8 +109,24 @@ export default function App() {
   // doesn't show up on first match" race, where an offer can arrive before
   // this side has finished setting up its peer connection.
   async function handleSignal(socket, type, data) {
+    // Reject signals left over from a previous match — the server now also
+    // makes us leave the old Socket.IO room, but a message already in
+    // flight when that happens could still arrive; this is the belt-and-
+    // suspenders check that stops it from being applied to the new match.
+    if (data.roomId && data.roomId !== roomIdRef.current) return;
+
     const pc = pcRef.current;
     if (!pc) {
+      pendingSignalsRef.current.push({ type, data });
+      return;
+    }
+
+    // ICE candidates can only be applied once a remote description exists —
+    // otherwise addIceCandidate throws. A candidate can easily arrive over
+    // the socket while we're still mid-way through setting the remote
+    // description (several awaits above), so check readiness, not just
+    // "does the peer connection object exist".
+    if (type === "ice" && !pc.remoteDescription) {
       pendingSignalsRef.current.push({ type, data });
       return;
     }
@@ -125,12 +141,14 @@ export default function App() {
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
         socket.emit("webrtc-answer", answer);
+        await drainPendingSignals(socket); // flush any ICE candidates queued during the above
       } else if (type === "answer") {
         // Only valid right after we sent an offer — a late/duplicate answer
         // (e.g. overlapping with an ICE restart) would otherwise throw
         // "Called in wrong state: stable" and silently break the call.
         if (pc.signalingState !== "have-local-offer") return;
         await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
+        await drainPendingSignals(socket); // flush any ICE candidates queued during the above
       } else if (type === "ice") {
         if (!data.candidate) return;
         await pc.addIceCandidate(new RTCIceCandidate(data.candidate));

@@ -1,30 +1,22 @@
 import { useState } from "react";
-import { login, requestOtp, verifyOtp, register, resetPassword } from "./api.js";
+import { login, register } from "./api.js";
 
-// Handles three flows:
-// - login: straight roll number + password
-// - register: roll number -> OTP sent to college email -> enter OTP -> set display name + password
-// - forgot: roll number -> OTP sent to college email -> enter OTP -> set new password, then back to login
+// Handles login and registration.
+// Registration is whitelist-only: the roll number must already be on the
+// university's pre-loaded list (see backend/src/config/seedRollNumbers.js).
+// No OTP/email verification for now (see project notes on email delivery costs).
 export default function Auth({ onAuthenticated }) {
-  const [mode, setMode] = useState("login"); // "login" | "register" | "forgot"
-  const [step, setStep] = useState("enterRoll"); // "enterRoll" | "enterOtp" | "enterDetails" | "enterNewPassword"
+  const [mode, setMode] = useState("login"); // "login" | "register"
 
   const [rollNumber, setRollNumber] = useState("");
-  const [otp, setOtp] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [password, setPassword] = useState("");
-  const [verifiedToken, setVerifiedToken] = useState(null);
 
   const [status, setStatus] = useState(null);
   const [busy, setBusy] = useState(false);
 
   function switchMode(newMode) {
     setMode(newMode);
-    setStep("enterRoll");
-    setOtp("");
-    setDisplayName("");
-    setPassword("");
-    setVerifiedToken(null);
     setStatus(null);
   }
 
@@ -42,65 +34,15 @@ export default function Auth({ onAuthenticated }) {
     }
   }
 
-  async function handleRequestOtp(e) {
-    e.preventDefault();
-    setBusy(true);
-    setStatus("Sending OTP to your college email...");
-    try {
-      const purpose = mode === "register" ? "register" : "reset";
-      await requestOtp(rollNumber, purpose);
-      setStatus("OTP sent — check your college email (may take a minute).");
-      setStep("enterOtp");
-    } catch (err) {
-      const data = err.response?.data;
-      const detail = data?.details ? ` (${data.details})` : "";
-      setStatus(`Failed to send OTP: ${data?.error || err.message}${detail}`);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handleVerifyOtp(e) {
-    e.preventDefault();
-    setBusy(true);
-    setStatus("Verifying OTP...");
-    try {
-      const purpose = mode === "register" ? "register" : "reset";
-      const { verifiedToken: token } = await verifyOtp(rollNumber, otp, purpose);
-      setVerifiedToken(token);
-      setStatus(null);
-      setStep(mode === "register" ? "enterDetails" : "enterNewPassword");
-    } catch (err) {
-      setStatus(`Verification failed: ${err.response?.data?.error || err.message}`);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handleCompleteRegister(e) {
+  async function handleRegister(e) {
     e.preventDefault();
     setBusy(true);
     setStatus("Creating your account...");
     try {
-      const { token } = await register(verifiedToken, displayName, password);
+      const { token } = await register(rollNumber, displayName, password);
       onAuthenticated(token, rollNumber.trim().toUpperCase());
     } catch (err) {
       setStatus(`Registration failed: ${err.response?.data?.error || err.message}`);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handleCompleteReset(e) {
-    e.preventDefault();
-    setBusy(true);
-    setStatus("Resetting password...");
-    try {
-      await resetPassword(verifiedToken, password);
-      setStatus("Password reset — you can log in now.");
-      switchMode("login");
-    } catch (err) {
-      setStatus(`Reset failed: ${err.response?.data?.error || err.message}`);
     } finally {
       setBusy(false);
     }
@@ -120,12 +62,6 @@ export default function Auth({ onAuthenticated }) {
           onClick={() => switchMode("register")}
         >
           Register
-        </div>
-        <div
-          className={`mode-tab ${mode === "forgot" ? "active" : ""}`}
-          onClick={() => switchMode("forgot")}
-        >
-          Forgot
         </div>
       </div>
 
@@ -149,41 +85,18 @@ export default function Auth({ onAuthenticated }) {
         </form>
       )}
 
-      {mode !== "login" && step === "enterRoll" && (
-        <form onSubmit={handleRequestOtp}>
+      {mode === "register" && (
+        <form onSubmit={handleRegister}>
           <div className="field">
             <label>Roll number</label>
             <input value={rollNumber} onChange={(e) => setRollNumber(e.target.value)} />
-            <p className="field-hint">
-              An OTP will be sent to {rollNumber || "<rollNumber>"}@mmmut.ac.in
-            </p>
           </div>
-          <button className="btn btn-primary" type="submit" disabled={busy}>
-            Send OTP
-          </button>
-        </form>
-      )}
-
-      {mode !== "login" && step === "enterOtp" && (
-        <form onSubmit={handleVerifyOtp}>
-          <div className="field">
-            <label>Enter the 6-digit OTP</label>
-            <input value={otp} onChange={(e) => setOtp(e.target.value)} maxLength={6} />
-          </div>
-          <button className="btn btn-primary" type="submit" disabled={busy}>
-            Verify OTP
-          </button>
-        </form>
-      )}
-
-      {mode === "register" && step === "enterDetails" && (
-        <form onSubmit={handleCompleteRegister}>
           <div className="field">
             <label>Display name</label>
             <input value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
           </div>
           <div className="field">
-            <label>Set a password</label>
+            <label>Password</label>
             <input
               type="password"
               value={password}
@@ -191,23 +104,7 @@ export default function Auth({ onAuthenticated }) {
             />
           </div>
           <button className="btn btn-primary" type="submit" disabled={busy}>
-            Create account
-          </button>
-        </form>
-      )}
-
-      {mode === "forgot" && step === "enterNewPassword" && (
-        <form onSubmit={handleCompleteReset}>
-          <div className="field">
-            <label>New password</label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-          </div>
-          <button className="btn btn-primary" type="submit" disabled={busy}>
-            Reset password
+            Register
           </button>
         </form>
       )}
