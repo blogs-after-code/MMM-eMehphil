@@ -20,6 +20,10 @@ export function initSocket(httpServer, corsOptions) {
 
   io.use(socketAuthMiddleware);
 
+  function broadcastOnlineCount() {
+    io.emit("online-count", onlineUsers.size);
+  }
+
   // Notifies both matched users and puts their sockets in the same room
   function notifyMatch(userA, userB, roomId) {
     const socketA = io.sockets.sockets.get(onlineUsers.get(userA));
@@ -47,6 +51,7 @@ export function initSocket(httpServer, corsOptions) {
     const { rollNumber } = socket.user;
     onlineUsers.set(rollNumber, socket.id);
     console.log(`Socket connected: ${rollNumber} (${socket.id})`);
+    broadcastOnlineCount();
 
     socket.on("ping", () => {
       socket.emit("pong", { message: "Server received your ping", at: Date.now() });
@@ -134,6 +139,7 @@ export function initSocket(httpServer, corsOptions) {
       leaveCurrentMatch(rollNumber);
       onlineUsers.delete(rollNumber);
       console.log(`Socket disconnected: ${rollNumber}`);
+      broadcastOnlineCount();
     });
   });
 

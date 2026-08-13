@@ -108,42 +108,42 @@ export default function Auth({ onAuthenticated }) {
 
   return (
     <div>
-      <div style={{ marginBottom: 8 }}>
-        <label>
-          <input type="radio" checked={mode === "login"} onChange={() => switchMode("login")} />{" "}
+      <div className="mode-tabs">
+        <div
+          className={`mode-tab ${mode === "login" ? "active" : ""}`}
+          onClick={() => switchMode("login")}
+        >
           Login
-        </label>{" "}
-        <label>
-          <input
-            type="radio"
-            checked={mode === "register"}
-            onChange={() => switchMode("register")}
-          />{" "}
+        </div>
+        <div
+          className={`mode-tab ${mode === "register" ? "active" : ""}`}
+          onClick={() => switchMode("register")}
+        >
           Register
-        </label>{" "}
-        <label>
-          <input type="radio" checked={mode === "forgot"} onChange={() => switchMode("forgot")} />{" "}
-          Forgot password
-        </label>
+        </div>
+        <div
+          className={`mode-tab ${mode === "forgot" ? "active" : ""}`}
+          onClick={() => switchMode("forgot")}
+        >
+          Forgot
+        </div>
       </div>
 
       {mode === "login" && (
         <form onSubmit={handleLogin}>
-          <div>
+          <div className="field">
             <label>Roll number</label>
-            <br />
             <input value={rollNumber} onChange={(e) => setRollNumber(e.target.value)} />
           </div>
-          <div style={{ marginTop: 8 }}>
+          <div className="field">
             <label>Password</label>
-            <br />
             <input
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
             />
           </div>
-          <button type="submit" disabled={busy} style={{ marginTop: 12 }}>
+          <button className="btn btn-primary" type="submit" disabled={busy}>
             Login
           </button>
         </form>
@@ -151,15 +151,14 @@ export default function Auth({ onAuthenticated }) {
 
       {mode !== "login" && step === "enterRoll" && (
         <form onSubmit={handleRequestOtp}>
-          <div>
+          <div className="field">
             <label>Roll number</label>
-            <br />
             <input value={rollNumber} onChange={(e) => setRollNumber(e.target.value)} />
+            <p className="field-hint">
+              An OTP will be sent to {rollNumber || "<rollNumber>"}@mmmut.ac.in
+            </p>
           </div>
-          <p style={{ fontSize: 12, color: "#666" }}>
-            An OTP will be sent to {rollNumber || "<rollNumber>"}@mmmut.ac.in
-          </p>
-          <button type="submit" disabled={busy} style={{ marginTop: 4 }}>
+          <button className="btn btn-primary" type="submit" disabled={busy}>
             Send OTP
           </button>
         </form>
@@ -167,12 +166,11 @@ export default function Auth({ onAuthenticated }) {
 
       {mode !== "login" && step === "enterOtp" && (
         <form onSubmit={handleVerifyOtp}>
-          <div>
+          <div className="field">
             <label>Enter the 6-digit OTP</label>
-            <br />
             <input value={otp} onChange={(e) => setOtp(e.target.value)} maxLength={6} />
           </div>
-          <button type="submit" disabled={busy} style={{ marginTop: 8 }}>
+          <button className="btn btn-primary" type="submit" disabled={busy}>
             Verify OTP
           </button>
         </form>
@@ -180,21 +178,19 @@ export default function Auth({ onAuthenticated }) {
 
       {mode === "register" && step === "enterDetails" && (
         <form onSubmit={handleCompleteRegister}>
-          <div>
+          <div className="field">
             <label>Display name</label>
-            <br />
             <input value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
           </div>
-          <div style={{ marginTop: 8 }}>
+          <div className="field">
             <label>Set a password</label>
-            <br />
             <input
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
             />
           </div>
-          <button type="submit" disabled={busy} style={{ marginTop: 8 }}>
+          <button className="btn btn-primary" type="submit" disabled={busy}>
             Create account
           </button>
         </form>
@@ -202,22 +198,21 @@ export default function Auth({ onAuthenticated }) {
 
       {mode === "forgot" && step === "enterNewPassword" && (
         <form onSubmit={handleCompleteReset}>
-          <div>
+          <div className="field">
             <label>New password</label>
-            <br />
             <input
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
             />
           </div>
-          <button type="submit" disabled={busy} style={{ marginTop: 8 }}>
+          <button className="btn btn-primary" type="submit" disabled={busy}>
             Reset password
           </button>
         </form>
       )}
 
-      {status && <p style={{ marginTop: 12 }}>{status}</p>}
+      {status && <p className="field-hint">{status}</p>}
     </div>
   );
 }

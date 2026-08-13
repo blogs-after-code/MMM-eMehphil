@@ -10,6 +10,7 @@ export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [rollNumber, setRollNumber] = useState("");
   const [status, setStatus] = useState("Not logged in");
+  const [onlineCount, setOnlineCount] = useState(null);
   const [matchStatus, setMatchStatus] = useState("idle"); // idle | previewing | waiting | matched
   const [partner, setPartner] = useState(null);
   const [messages, setMessages] = useState([]); // { from, text, at }
@@ -29,12 +30,13 @@ export default function App() {
   const stopMeterRef = useRef(null); // cleanup function for the audio meter
   const roomIdRef = useRef(null); // current match's room, needed for reporting
   const voiceBarRef = useRef(null); // updated directly (not via React state) so it stays smooth at 60fps
+  const connectingSinceRef = useRef(null); // timestamp — used to decide when to show the connection tip
 
   function handleAuthenticated(token, myRollNumber) {
     tokenRef.current = token;
     setRollNumber(myRollNumber);
     setIsAuthenticated(true);
-    setStatus("Logged in — connecting socket...");
+    setStatus("Logged in — connecting...");
     connectSocket(token);
   }
 
@@ -42,48 +44,49 @@ export default function App() {
     const socket = createSocket(token);
     socketRef.current = socket;
 
-      socket.on("connect", () => setStatus(`Socket connected: ${socket.id}`));
-      socket.on("connect_error", (err) => setStatus(`Socket error: ${err.message}`));
-      socket.on("disconnect", () => setStatus("Socket disconnected"));
+    socket.on("connect", () => setStatus("Connected"));
+    socket.on("connect_error", (err) => setStatus(`Connection error: ${err.message}`));
+    socket.on("disconnect", () => setStatus("Disconnected"));
+    socket.on("online-count", (count) => setOnlineCount(count));
 
-      socket.on("waiting", () => {
-        setMatchStatus("waiting");
-        setPartner(null);
-        setMessages([]);
-        roomIdRef.current = null;
-        teardownPeerConnection(); // in case we just clicked Next — don't leave the old call open
-      });
+    socket.on("waiting", () => {
+      setMatchStatus("waiting");
+      setPartner(null);
+      setMessages([]);
+      roomIdRef.current = null;
+      teardownPeerConnection(); // in case we just clicked Next — don't leave the old call open
+    });
 
-      socket.on("matched", async (data) => {
-        setMatchStatus("matched");
-        setPartner(data.partner);
-        setMessages([]);
-        setReportStatus(null);
-        roomIdRef.current = data.roomId;
-        teardownPeerConnection(); // clean up any leftover connection, keep camera preview running
-        // We become the "offerer" if our roll number sorts first — deterministic,
-        // so both sides agree who initiates without extra signaling.
-        const isOfferer = rollNumber < data.partner;
-        await setupWebRTC(socket, isOfferer);
-      });
+    socket.on("matched", async (data) => {
+      setMatchStatus("matched");
+      setPartner(data.partner);
+      setMessages([]);
+      setReportStatus(null);
+      roomIdRef.current = data.roomId;
+      teardownPeerConnection(); // clean up any leftover connection, keep camera preview running
+      // We become the "offerer" if our roll number sorts first — deterministic,
+      // so both sides agree who initiates without extra signaling.
+      const isOfferer = rollNumber < data.partner;
+      await setupWebRTC(socket, isOfferer);
+    });
 
-      socket.on("webrtc-offer", (data) => handleSignal(socket, "offer", data));
-      socket.on("webrtc-answer", (data) => handleSignal(socket, "answer", data));
-      socket.on("webrtc-ice-candidate", (data) => handleSignal(socket, "ice", data));
+    socket.on("webrtc-offer", (data) => handleSignal(socket, "offer", data));
+    socket.on("webrtc-answer", (data) => handleSignal(socket, "answer", data));
+    socket.on("webrtc-ice-candidate", (data) => handleSignal(socket, "ice", data));
 
-      socket.on("chat-message", (msg) => {
-        setMessages((prev) => [...prev, msg]);
-      });
+    socket.on("chat-message", (msg) => {
+      setMessages((prev) => [...prev, msg]);
+    });
 
-      socket.on("partner-left", () => {
-        setMatchStatus("previewing"); // back to solo preview, not fully idle — camera stays on
-        setPartner(null);
-        setMessages([]);
-        roomIdRef.current = null;
-        teardownPeerConnection();
-      });
+    socket.on("partner-left", () => {
+      setMatchStatus("previewing"); // back to solo preview, not fully idle — camera stays on
+      setPartner(null);
+      setMessages([]);
+      roomIdRef.current = null;
+      teardownPeerConnection();
+    });
 
-      socket.connect();
+    socket.connect();
   }
 
   // Runs the moment the user clicks Start — gets camera/mic access and shows
@@ -112,20 +115,28 @@ export default function App() {
       return;
     }
 
-    if (type === "offer") {
-      await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
-      const answer = await pc.createAnswer();
-      await pc.setLocalDescription(answer);
-      socket.emit("webrtc-answer", answer);
-    } else if (type === "answer") {
-      await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
-    } else if (type === "ice") {
-      if (!data.candidate) return;
-      try {
+    try {
+      if (type === "offer") {
+        // Only valid when we're not mid-negotiation already — avoids "glare"
+        // if both sides send an offer around the same time (e.g. after an
+        // ICE restart racing with a normal renegotiation).
+        if (pc.signalingState !== "stable") return;
+        await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        socket.emit("webrtc-answer", answer);
+      } else if (type === "answer") {
+        // Only valid right after we sent an offer — a late/duplicate answer
+        // (e.g. overlapping with an ICE restart) would otherwise throw
+        // "Called in wrong state: stable" and silently break the call.
+        if (pc.signalingState !== "have-local-offer") return;
+        await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
+      } else if (type === "ice") {
+        if (!data.candidate) return;
         await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
-      } catch (err) {
-        console.error("Failed to add ICE candidate", err);
       }
+    } catch (err) {
+      console.error(`Failed to handle ${type}`, err);
     }
   }
 
@@ -143,6 +154,8 @@ export default function App() {
     const stream = localStreamRef.current;
     if (!stream) return; // shouldn't happen — preview always starts before a match
 
+    connectingSinceRef.current = Date.now();
+
     const pc = createPeerConnection({
       onRemoteStream: (remoteStream) => {
         if (remoteVideoRef.current) remoteVideoRef.current.srcObject = remoteStream;
@@ -152,8 +165,9 @@ export default function App() {
       },
       onConnectionStateChange: (state) => {
         setConnectionState(state);
+        if (state === "connected") connectingSinceRef.current = null;
         // "failed" means the direct connection attempt didn't work (e.g. strict
-        // NAT with no TURN server reachable) — try renegotiating once.
+        // NAT/college wifi with no TURN server reachable) — try renegotiating once.
         if (state === "failed") {
           restartIce(pc, socket).catch((err) =>
             console.error("ICE restart failed", err)
@@ -186,6 +200,7 @@ export default function App() {
     if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
     setConnectionState(null);
     pendingSignalsRef.current = [];
+    connectingSinceRef.current = null;
   }
 
   // Full teardown — stops the camera/mic and the voice meter too.
@@ -258,139 +273,152 @@ export default function App() {
     };
   }, []);
 
+  // Show a tip nudging users toward mobile data / network tweaks if a
+  // connection is stuck "connecting" for a while, or has failed — since
+  // this project intentionally avoids relying on a TURN server.
+  const showConnectionTip =
+    connectionState === "failed" ||
+    connectionState === "disconnected" ||
+    (connectionState === "connecting" && matchStatus === "matched");
+
   return (
-    <div style={{ fontFamily: "sans-serif", padding: "2rem", maxWidth: 400 }}>
-      <h1>MMM eMehphil</h1>
+    <div className="app-shell">
+      <div className="top-bar">
+        <h1 className="brand">MMM eMehphil</h1>
+        {isAuthenticated && onlineCount !== null && (
+          <div className="online-pill">
+            <span className="online-dot" />
+            {onlineCount} online
+          </div>
+        )}
+      </div>
 
       {!isAuthenticated ? (
-        <Auth onAuthenticated={handleAuthenticated} />
+        <div className="card">
+          <Auth onAuthenticated={handleAuthenticated} />
+        </div>
       ) : (
         <>
-          <p style={{ marginTop: 16 }}>
-            <strong>Status:</strong> {status}
-          </p>
-
-          <hr />
-
-          <p>
-            <strong>Match status:</strong> {matchStatus}
-            {partner && ` — paired with ${partner}`}
-          </p>
-
-      {matchStatus === "idle" && (
-        <div style={{ marginBottom: 8 }}>
-          <label>
-            <input
-              type="radio"
-              checked={filterMode === "any"}
-              onChange={() => setFilterMode("any")}
-            />{" "}
-            Match with anyone
-          </label>{" "}
-          <label>
-            <input
-              type="radio"
-              checked={filterMode === "ownYear"}
-              onChange={() => setFilterMode("ownYear")}
-            />{" "}
-            Match with my year only
-          </label>
-        </div>
-      )}
-
-      <button onClick={findMatch} disabled={matchStatus !== "idle"}>
-        Start
-      </button>{" "}
-      <button onClick={nextMatch} disabled={matchStatus !== "matched"}>
-        Next
-      </button>{" "}
-      <button onClick={stopMatch} disabled={matchStatus === "idle"}>
-        Stop
-      </button>
-
-      {matchStatus !== "idle" && (
-        <div style={{ marginTop: 16 }}>
-          {connectionState && (
-            <p style={{ margin: "0 0 8px" }}>
-              <strong>Video connection:</strong> {connectionState}
+          <div className="card">
+            <p className="status-line">
+              <strong>{status}</strong>
             </p>
-          )}
-          <div style={{ display: "flex", gap: 8 }}>
-            <div style={{ width: "48%" }}>
-              <video
-                ref={localVideoRef}
-                autoPlay
-                muted
-                playsInline
-                style={{ width: "100%", background: "#000", display: "block" }}
-              />
-              {/* Voice-level meter — fills based on mic input, so the user
-                  can see their voice is being picked up before they're even matched. */}
-              <div style={{ height: 8, background: "#eee", marginTop: 4 }}>
-                <div
-                  ref={voiceBarRef}
-                  style={{
-                    height: "100%",
-                    width: "0%",
-                    background: "limegreen",
-                  }}
-                />
+            <p className="status-line">
+              Status: <span className={`badge badge-${matchStatus}`}>{matchStatus}</span>
+              {partner && <> — paired with <strong>{partner}</strong></>}
+            </p>
+
+            {matchStatus === "idle" && (
+              <div className="filter-row">
+                <label>
+                  <input
+                    type="radio"
+                    checked={filterMode === "any"}
+                    onChange={() => setFilterMode("any")}
+                  />
+                  Match with anyone
+                </label>
+                <label>
+                  <input
+                    type="radio"
+                    checked={filterMode === "ownYear"}
+                    onChange={() => setFilterMode("ownYear")}
+                  />
+                  My year only
+                </label>
               </div>
+            )}
+
+            <div className="btn-row">
+              <button
+                className="btn btn-primary"
+                onClick={findMatch}
+                disabled={matchStatus !== "idle"}
+              >
+                Start
+              </button>
+              <button
+                className="btn btn-secondary"
+                onClick={nextMatch}
+                disabled={matchStatus !== "matched"}
+              >
+                Next
+              </button>
+              <button
+                className="btn btn-danger"
+                onClick={stopMatch}
+                disabled={matchStatus === "idle"}
+              >
+                Stop
+              </button>
             </div>
-            <video
-              ref={remoteVideoRef}
-              autoPlay
-              playsInline
-              style={{ width: "48%", background: "#000" }}
-            />
           </div>
 
-          {matchStatus === "matched" && (
-            <>
-              <div
-                style={{
-                  border: "1px solid #ccc",
-                  height: 200,
-                  overflowY: "auto",
-                  padding: 8,
-                  marginTop: 12,
-                  marginBottom: 8,
-                }}
-              >
-                {messages.map((m, i) => (
-                  <div key={i}>
-                    <strong>{m.from === "me" ? "Me" : m.from}:</strong> {m.text}
+          {matchStatus !== "idle" && (
+            <div className="card">
+              <div className="video-grid">
+                <div className="video-tile">
+                  <video ref={localVideoRef} autoPlay muted playsInline />
+                  <span className="video-label">You</span>
+                  <div className="voice-meter">
+                    <div ref={voiceBarRef} className="voice-meter-fill" />
                   </div>
-                ))}
+                </div>
+                <div className="video-tile">
+                  <video ref={remoteVideoRef} autoPlay playsInline />
+                  {partner && <span className="video-label">{partner}</span>}
+                </div>
               </div>
-              <form onSubmit={sendMessage}>
-                <input
-                  value={chatInput}
-                  onChange={(e) => setChatInput(e.target.value)}
-                  placeholder="Type a message..."
-                  style={{ width: "75%" }}
-                />
-                <button type="submit">Send</button>
-              </form>
 
-              <div style={{ marginTop: 16, borderTop: "1px solid #ccc", paddingTop: 8 }}>
-                <form onSubmit={sendReport}>
-                  <label>Report this user</label>
-                  <br />
-                  <input
-                    value={reportReason}
-                    onChange={(e) => setReportReason(e.target.value)}
-                    placeholder="Reason (e.g. abuse, obscene content)"
-                    style={{ width: "75%" }}
-                  />
-                  <button type="submit">Report</button>
-                </form>
-                {reportStatus && <p>{reportStatus}</p>}
-              </div>
-            </>
+              {showConnectionTip && (
+                <div className="connection-tip">
+                  Having trouble connecting? College wifi sometimes blocks direct
+                  video connections. Try switching to mobile data, or check that
+                  your firewall/VPN isn't blocking WebRTC.
+                </div>
+              )}
+
+              {matchStatus === "matched" && (
+                <>
+                  <div className="chat-box">
+                    {messages.map((m, i) => (
+                      <div className="chat-msg" key={i}>
+                        <span className="from">{m.from === "me" ? "Me" : m.from}:</span>
+                        {m.text}
+                      </div>
+                    ))}
+                  </div>
+                  <form className="chat-input-row" onSubmit={sendMessage}>
+                    <input
+                      value={chatInput}
+                      onChange={(e) => setChatInput(e.target.value)}
+                      placeholder="Type a message..."
+                    />
+                    <button className="btn btn-secondary" type="submit">
+                      Send
+                    </button>
+                  </form>
+
+                  <div className="report-section">
+                    <form onSubmit={sendReport}>
+                      <div className="field">
+                        <label>Report this user</label>
+                        <input
+                          value={reportReason}
+                          onChange={(e) => setReportReason(e.target.value)}
+                          placeholder="Reason (e.g. abuse, obscene content)"
+                        />
+                      </div>
+                      <button className="btn btn-danger" type="submit">
+                        Report
+                      </button>
+                    </form>
+                    {reportStatus && <p className="field-hint">{reportStatus}</p>}
+                  </div>
+                </>
+              )}
+            </div>
           )}
-        </div>
-      )}
         </>
       )}
     </div>
