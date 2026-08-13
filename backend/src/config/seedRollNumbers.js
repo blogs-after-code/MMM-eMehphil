@@ -17,7 +17,6 @@ dns.setServers(["8.8.8.8", "1.1.1.1"]);
 
 // MMMUT roll numbers are 10-digit; official email is <rollnumber>@mmmut.ac.in
 const testRollNumbers = ["2025021374", "2025071129", "2026011234", "2027061001" , "2025021255"];
-
 async function seed() {
   await mongoose.connect(process.env.MONGO_URI);
 
