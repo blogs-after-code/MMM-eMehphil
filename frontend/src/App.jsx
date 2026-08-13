@@ -374,6 +374,11 @@ export default function App() {
 
           {matchStatus !== "idle" && (
             <div className="card">
+              {connectionState && (
+                <p className="status-line">
+                  Video connection: <strong>{connectionState}</strong>
+                </p>
+              )}
               <div className="video-grid">
                 <div className="video-tile">
                   <video ref={localVideoRef} autoPlay muted playsInline />

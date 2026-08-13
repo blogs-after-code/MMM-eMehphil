@@ -19,6 +19,7 @@ export function createPeerConnection({ onRemoteStream, onIceCandidate, onConnect
   const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
 
   pc.ontrack = (event) => {
+    console.log("[webrtc] ontrack fired, kind:", event.track.kind);
     onRemoteStream(event.streams[0]);
   };
 
@@ -32,7 +33,17 @@ export function createPeerConnection({ onRemoteStream, onIceCandidate, onConnect
   // "disconnected" | "failed" | "closed". Lets App.jsx show a status
   // and attempt an ICE restart if the connection drops mid-call.
   pc.onconnectionstatechange = () => {
+    console.log("[webrtc] connectionState:", pc.connectionState);
     onConnectionStateChange?.(pc.connectionState);
+  };
+
+  // More granular than connectionState — helps tell "still checking
+  // candidate pairs" apart from "found nothing that works".
+  pc.oniceconnectionstatechange = () => {
+    console.log("[webrtc] iceConnectionState:", pc.iceConnectionState);
+  };
+  pc.onicegatheringstatechange = () => {
+    console.log("[webrtc] iceGatheringState:", pc.iceGatheringState);
   };
 
   return pc;
